@@ -1,0 +1,22 @@
+# ignore PyCharm IDE Files
+.idea/
+
+# ignore py cache
+__pycache__
+
+# ignore virtual environment
+venv/
+
+# ignore data repository
+data/
+
+# ignore model checkpoints
+models/
+
+# ignore john-master data/results directory
+john-master/data/
+john-master/results/
+
+# ignore pdf and png assets used in the report
+*.pdf
+*.png
