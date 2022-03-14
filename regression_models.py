@@ -1,4 +1,6 @@
 import argparse
+from abc import ABC
+
 import numpy as np
 import tensorflow as tf
 import scipy.stats as sps
@@ -7,7 +9,7 @@ import tensorflow_probability as tfp
 import seaborn as sns
 from matplotlib import pyplot as plt
 
-from utils_model import softplus_inverse, expected_log_normal, monte_carlo_student_t, VariationalVariance
+from utils_model import expected_log_normal, monte_carlo_student_t, VariationalVariance
 from callbacks import RegressionCallback
 from regression_data import generate_toy_data
 
@@ -27,7 +29,7 @@ def neural_network(d_in, n_hidden, d_hidden, f_hidden, d_out, f_out=None, name=N
     return nn
 
 
-class LocationScaleRegression(tf.keras.Model):
+class LocationScaleRegression(tf.keras.Model, ABC):
 
     def __init__(self, y_mean, y_var):
         super(LocationScaleRegression, self).__init__()
@@ -60,7 +62,7 @@ class LocationScaleRegression(tf.keras.Model):
         return tf.constant(0.0, dtype=tf.float32)
 
 
-class NormalRegression(LocationScaleRegression):
+class NormalRegression(LocationScaleRegression, ABC):
 
     def __init__(self, d_in, n_hidden, d_hidden, f_hidden, d_out, y_mean, y_var, **kwargs):
         super(NormalRegression, self).__init__(y_mean, y_var)
@@ -111,7 +113,7 @@ class NormalRegression(LocationScaleRegression):
         return n_dist.mean().numpy(), n_dist.stddev().numpy(), n_dist.sample().numpy()
 
 
-class PredictiveStudent(LocationScaleRegression):
+class PredictiveStudent(LocationScaleRegression, ABC):
     def __init__(self, y_mean, y_var):
         super(PredictiveStudent, self).__init__(y_mean, y_var)
 
@@ -137,7 +139,7 @@ class PredictiveStudent(LocationScaleRegression):
         return mean.numpy(), stddev.numpy(), t_dist.sample().numpy()
 
 
-class StudentRegression(PredictiveStudent):
+class StudentRegression(PredictiveStudent, ABC):
 
     def __init__(self, d_in, n_hidden, d_hidden, f_hidden, d_out, y_mean, y_var, num_mc_samples, **kwargs):
         super(StudentRegression, self).__init__(y_mean, y_var)
@@ -192,7 +194,7 @@ class StudentRegression(PredictiveStudent):
         self.add_metric(self.squared_errors(mu, y), name='Mean MSE', aggregation='mean')
 
 
-class VariationalPrecisionNormalRegression(PredictiveStudent, VariationalVariance):
+class VariationalPrecisionNormalRegression(PredictiveStudent, VariationalVariance, ABC):
 
     def __init__(self, d_in, n_hidden, d_hidden, f_hidden, d_out, y_mean, y_var, prior_type, prior_fam, num_mc_samples, **kwargs):
         PredictiveStudent.__init__(self, y_mean, y_var)
@@ -331,12 +333,6 @@ if __name__ == '__main__':
     # enable background tiles on plots
     sns.set(color_codes=True)
 
-    # unit tests for softplus inverse
-    test = np.random.uniform(-10, 10, 100)
-    assert (np.abs(softplus_inverse(tf.nn.softplus(test)) - test) < 1e-6).all()
-    test = np.random.uniform(0, 10, 100)
-    assert (np.abs(tf.nn.softplus(softplus_inverse(test)) - test) < 1e-6).all()
-
     # unit tests for LocationScaleRegression class
     lcr = LocationScaleRegression(y_mean=np.random.normal(0, 1), y_var=np.random.gamma(1, 1))
     a = tf.random.gamma(shape=[100], alpha=1, beta=1, dtype=tf.float32)
@@ -400,7 +396,7 @@ if __name__ == '__main__':
 
     # build the model. loss=[None] avoids warning "Output output_1 missing from loss dictionary".
     optimizer = tf.keras.optimizers.Adam(learning_rate=LEARNING_RATE)
-    mdl.compile(optimizer=optimizer, loss=[None], run_eagerly=False)
+    mdl.compile(optimizer=optimizer, run_eagerly=False)
 
     # train model
     hist = mdl.fit(ds_train, epochs=EPOCHS, verbose=0, callbacks=[RegressionCallback(EPOCHS)])

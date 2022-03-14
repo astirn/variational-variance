@@ -4,15 +4,6 @@ import tensorflow as tf
 import tensorflow_probability as tfp
 
 
-def softplus_inverse(x):
-    """
-    Inverse of the softplus function
-    :param x: must be > 0
-    :return: inverse-softplus(x)
-    """
-    return tf.math.log(tf.exp(x) - 1)
-
-
 def expected_log_normal(x, mu, precision, log_precision):
     """
     :param x: observations where trailing dimension constitutes an event with diagonal covariance
@@ -87,7 +78,7 @@ class VariationalVariance(object):
             # fixed prior parameters for precision
             params = [0.05, 0.1, 0.25, 0.5, 0.75, 1., 1.5, 2.0, 2.5, 3.0, 3.5, 4.0]
             if self.prior_fam == 'Gamma':
-                uv = softplus_inverse(np.array(tuple(itertools.product(params, params)), dtype=np.float32).T)
+                uv = tfp.math.softplus_inverse(np.array(tuple(itertools.product(params, params)), dtype=np.float32).T)
                 u = tf.expand_dims(uv[0], axis=-1)
                 v = tf.expand_dims(uv[1], axis=-1)
             else:
@@ -95,7 +86,7 @@ class VariationalVariance(object):
                 mean = uv[0] / uv[1]
                 var = uv[0] / uv[1] ** 2
                 u = tf.expand_dims(tf.math.log(mean ** 2 / (mean ** 2 + var) ** 0.5), axis=-1)
-                v = softplus_inverse(tf.expand_dims(tf.math.log(1 + var / (mean ** 2)), axis=-1))
+                v = tfp.math.softplus_inverse(tf.expand_dims(tf.math.log(1 + var / (mean ** 2)), axis=-1))
             self.u = tf.Variable(initial_value=u, dtype=tf.float32, trainable=False, name='u')
             self.v = tf.Variable(initial_value=v, dtype=tf.float32, trainable=False, name='v')
         elif self.prior_type == 'VBEM*':
