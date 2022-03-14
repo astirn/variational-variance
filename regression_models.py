@@ -363,11 +363,13 @@ if __name__ == '__main__':
     U = np.expand_dims(np.linspace(np.min(x_eval), np.max(x_eval), 20), axis=-1)
 
     # pick the appropriate model
+    plot_title = args.algorithm
     if args.algorithm == 'Normal':
         MODEL = NormalRegression
     elif args.algorithm == 'Student':
         MODEL = StudentRegression
     else:
+        plot_title += ' ' + args.prior_type
         MODEL = VariationalPrecisionNormalRegression
 
     # declare model instance
@@ -400,5 +402,5 @@ if __name__ == '__main__':
     fig = plt.figure()
     fig.suptitle(args.algorithm)
     plt.plot(hist.history['Model LL'])
-    fancy_plot(x_train, y_train, x_eval, true_mean, true_std, mdl_mean, mdl_std, args.algorithm)
+    fancy_plot(x_train, y_train, x_eval, true_mean, true_std, mdl_mean, mdl_std, plot_title)
     plt.show()

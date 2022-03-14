@@ -56,21 +56,21 @@ def monte_carlo_student_t(mean, precision_samples):
 
 class VariationalVariance(object):
 
-    def __init__(self, dim_precision, prior_type, **kwargs):
-        assert isinstance(dim_precision, int) and dim_precision > 0
-        assert prior_type in {'VAP', 'Standard', 'VAMP', 'VAMP*', 'xVAMP', 'xVAMP*', 'VBEM', 'VBEM*'}
+    def __init__(self, dims, prior_type, **kwargs):
+        assert isinstance(dims, int) and dims > 0
 
         # save configuration
         self.prior_type = prior_type
 
         # configure prior
-        if self.prior_type == 'Standard':
-            a = tf.constant([kwargs.get('a')] * dim_precision, dtype=tf.float32)
-            b = tf.constant([kwargs.get('b')] * dim_precision, dtype=tf.float32)
-            self.pp = self.precision_prior(a, b)
+        trainable = '*' in self.prior_type
+        if 'Standard' in self.prior_type:
+            a = kwargs.get('a')
+            b = kwargs.get('b')
+            self.a = tf.Variable([tfp.math.softplus_inverse(a)] * dims, dtype=tf.float32, trainable=trainable, name='a')
+            self.b = tf.Variable([tfp.math.softplus_inverse(b)] * dims, dtype=tf.float32, trainable=trainable, name='b')
         elif 'VAMP' in self.prior_type:
             # pseudo-inputs
-            trainable = '*' in self.prior_type
             self.u = tf.Variable(initial_value=kwargs.get('u'), dtype=tf.float32, trainable=trainable, name='u')
         elif self.prior_type == 'VBEM':
             # fixed prior parameters for precision
@@ -83,10 +83,12 @@ class VariationalVariance(object):
         elif self.prior_type == 'VBEM*':
             # trainable prior parameters for precision
             k = kwargs.get('k')
-            u = tf.random.uniform(shape=(k, dim_precision), minval=-3, maxval=3, dtype=tf.float32)
-            v = tf.random.uniform(shape=(k, dim_precision), minval=-3, maxval=3, dtype=tf.float32)
+            u = tf.random.uniform(shape=(k, dims), minval=-3, maxval=3, dtype=tf.float32)
+            v = tf.random.uniform(shape=(k, dims), minval=-3, maxval=3, dtype=tf.float32)
             self.u = tf.Variable(initial_value=u, dtype=tf.float32, trainable=True, name='u')
             self.v = tf.Variable(initial_value=v, dtype=tf.float32, trainable=True, name='v')
+        else:
+            raise NotImplementedError
 
     def expected_precision(self, alpha, beta):
         """
@@ -116,8 +118,8 @@ class VariationalVariance(object):
         assert not ('VAMP' in self.prior_type and vamp_samples is None)
 
         # compute kl-divergence depending on prior type
-        if self.prior_type == 'Standard':
-            dkl = qp.kl_divergence(self.pp)
+        if 'Standard' in self.prior_type:
+            dkl = qp.kl_divergence(self.precision_prior(tf.nn.softplus(self.a), tf.nn.softplus(self.b)))
         elif 'VAMP' in self.prior_type or 'VBEM' in self.prior_type:
 
             # prior's mixture proportions--shape will be [# components, batch size (or 1), # MC samples (or 1)]
