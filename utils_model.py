@@ -56,14 +56,12 @@ def monte_carlo_student_t(mean, precision_samples):
 
 class VariationalVariance(object):
 
-    def __init__(self, dim_precision, prior_type, prior_fam, **kwargs):
+    def __init__(self, dim_precision, prior_type, **kwargs):
         assert isinstance(dim_precision, int) and dim_precision > 0
         assert prior_type in {'VAP', 'Standard', 'VAMP', 'VAMP*', 'xVAMP', 'xVAMP*', 'VBEM', 'VBEM*'}
-        assert prior_fam in {'Gamma', 'LogNormal'}
 
         # save configuration
         self.prior_type = prior_type
-        self.prior_fam = prior_fam
 
         # configure prior
         if self.prior_type == 'Standard':
@@ -77,16 +75,9 @@ class VariationalVariance(object):
         elif self.prior_type == 'VBEM':
             # fixed prior parameters for precision
             params = [0.05, 0.1, 0.25, 0.5, 0.75, 1., 1.5, 2.0, 2.5, 3.0, 3.5, 4.0]
-            if self.prior_fam == 'Gamma':
-                uv = tfp.math.softplus_inverse(np.array(tuple(itertools.product(params, params)), dtype=np.float32).T)
-                u = tf.expand_dims(uv[0], axis=-1)
-                v = tf.expand_dims(uv[1], axis=-1)
-            else:
-                uv = np.array(tuple(itertools.product(params, params)), dtype=np.float32).T
-                mean = uv[0] / uv[1]
-                var = uv[0] / uv[1] ** 2
-                u = tf.expand_dims(tf.math.log(mean ** 2 / (mean ** 2 + var) ** 0.5), axis=-1)
-                v = tfp.math.softplus_inverse(tf.expand_dims(tf.math.log(1 + var / (mean ** 2)), axis=-1))
+            uv = tfp.math.softplus_inverse(np.array(tuple(itertools.product(params, params)), dtype=np.float32).T)
+            u = tf.expand_dims(uv[0], axis=-1)
+            v = tf.expand_dims(uv[1], axis=-1)
             self.u = tf.Variable(initial_value=u, dtype=tf.float32, trainable=False, name='u')
             self.v = tf.Variable(initial_value=v, dtype=tf.float32, trainable=False, name='v')
         elif self.prior_type == 'VBEM*':
@@ -99,39 +90,25 @@ class VariationalVariance(object):
 
     def expected_precision(self, alpha, beta):
         """
-        :param alpha: precision shape (Gamma distributed precision) or mean (LogNormal distributed precision) parameter
-        :param beta: precision scale parameter with leading MC sample dimension followed by batch dimension
+        :param alpha: precision shape (Gamma distributed precision)
+        :param beta: precision scale (Gamma distributed precision)
         :return: E_{q(lambda | alpha, beta} [lambda]
         """
-        if self.prior_fam == 'Gamma':
-            return alpha / beta
-        else:  # self.prior_fam == 'LogNormal':
-            return tf.exp(alpha + beta ** 2 / 2)
-
+        return alpha / beta
+    
     def expected_log_precision(self, alpha, beta):
         """
-        :param alpha: precision shape (Gamma distributed precision) or mean (LogNormal distributed precision) parameter
-        :param beta: precision scale parameter with leading MC sample dimension followed by batch dimension
+        :param alpha: precision shape (Gamma distributed precision)
+        :param beta: precision scale parameter (Gamma distributed precision)
         :return: E_{q(lambda | alpha, beta} [log lambda]
         """
-        if self.prior_fam == 'Gamma':
-            return tf.math.digamma(alpha) - tf.math.log(beta)
-        else:  # self.prior_fam == 'LogNormal':
-            return alpha
+        return tf.math.digamma(alpha) - tf.math.log(beta)
 
     def precision_prior(self, alpha, beta):
-        if self.prior_fam == 'Gamma':
-            prior = tfp.distributions.Gamma(alpha, beta)
-        else:  # self.prior_fam == 'LogNormal':
-            prior = tfp.distributions.LogNormal(alpha, beta)
-        return tfp.distributions.Independent(prior, reinterpreted_batch_ndims=1)
+        return tfp.distributions.Independent(tfp.distributions.Gamma(alpha, beta), reinterpreted_batch_ndims=1)
 
     def variational_precision(self, alpha, beta, leading_mc_dimension):
-        if self.prior_fam == 'Gamma':
-            qp = tfp.distributions.Gamma(alpha, beta)
-        else:  # self.prior_fam == 'LogNormal':
-            qp = tfp.distributions.LogNormal(alpha, beta)
-        qp = tfp.distributions.Independent(qp, reinterpreted_batch_ndims=1)
+        qp = tfp.distributions.Independent(tfp.distributions.Gamma(alpha, beta), reinterpreted_batch_ndims=1)
         p_samples = qp.sample(sample_shape=() if leading_mc_dimension else self.num_mc_samples)
         return qp, p_samples
 

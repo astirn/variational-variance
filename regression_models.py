@@ -9,7 +9,7 @@ import tensorflow_probability as tfp
 import seaborn as sns
 from matplotlib import pyplot as plt
 
-from utils_model import expected_log_normal, monte_carlo_student_t, VariationalVariance
+from utils_model import expected_log_normal, VariationalVariance
 from callbacks import RegressionCallback
 from regression_data import generate_toy_data
 
@@ -196,9 +196,9 @@ class StudentRegression(PredictiveStudent, ABC):
 
 class VariationalPrecisionNormalRegression(PredictiveStudent, VariationalVariance, ABC):
 
-    def __init__(self, d_in, n_hidden, d_hidden, f_hidden, d_out, y_mean, y_var, prior_type, prior_fam, num_mc_samples, **kwargs):
+    def __init__(self, d_in, n_hidden, d_hidden, f_hidden, d_out, y_mean, y_var, prior_type, num_mc_samples, **kwargs):
         PredictiveStudent.__init__(self, y_mean, y_var)
-        VariationalVariance.__init__(self, d_out, prior_type, prior_fam, **kwargs)
+        VariationalVariance.__init__(self, d_out, prior_type, **kwargs)
         assert isinstance(d_in, int) and d_in > 0
         assert isinstance(d_hidden, int) and d_hidden > 0
         assert isinstance(d_out, int) and d_out > 0
@@ -208,13 +208,11 @@ class VariationalPrecisionNormalRegression(PredictiveStudent, VariationalVarianc
         self.num_mc_samples = num_mc_samples
 
         # build parameter networks
-        self.mu = neural_network(d_in, n_hidden, d_hidden, f_hidden, d_out, f_out=None, name='mu')
-        alpha_f_out = 'softplus' if self.prior_fam == 'Gamma' else None
-        self.alpha_network = neural_network(d_in, n_hidden, d_hidden, f_hidden, d_out, f_out=alpha_f_out, name='alpha')
-        self.alpha = lambda x: self.alpha_network(x) + 1
-        self.beta = neural_network(d_in, n_hidden, d_hidden, f_hidden, d_out, f_out='softplus', name='beta')
+        self.mu = neural_network(d_in, n_hidden, d_hidden, f_hidden, d_out, None, 'mu')
+        self.alpha = neural_network(d_in, n_hidden, d_hidden, f_hidden, d_out, lambda x: 1 + tf.nn.softplus(x), 'alpha')
+        self.beta = neural_network(d_in, n_hidden, d_hidden, f_hidden, d_out, 'softplus', 'beta')
         if self.prior_type in {'xVAMP', 'xVAMP*', 'VBEM', 'VBEM*'}:
-            self.pi = neural_network(d_in, n_hidden, d_hidden, f_hidden, self.u.shape[0], f_out='softmax', name='pi')
+            self.pi = neural_network(d_in, n_hidden, d_hidden, f_hidden, self.u.shape[0], 'softmax', 'pi')
 
     def expected_ll(self, y, mu, alpha, beta, whiten_targets):
 
@@ -257,7 +255,7 @@ class VariationalPrecisionNormalRegression(PredictiveStudent, VariationalVarianc
         ell_de_whitened = self.expected_ll(y, mu, alpha, beta, whiten_targets=False)
 
         # assign model's log likelihood as the log posterior predictive likelihood
-        ll_model = self.log_posterior_predictive_likelihood(y, mu, alpha, beta, p_samples)
+        ll_model = self.log_posterior_predictive_likelihood(y, mu, alpha, beta)
 
         # observation metrics
         self.add_metric(elbo, name='ELBO', aggregation='mean')
@@ -267,22 +265,16 @@ class VariationalPrecisionNormalRegression(PredictiveStudent, VariationalVarianc
         self.add_metric(ll_model, name='Model LL', aggregation='mean')
         self.add_metric(self.squared_errors(mu, y), name='Mean MSE', aggregation='mean')
 
-    def log_posterior_predictive_likelihood(self, y, mu, alpha, beta, p_samples):
+    def log_posterior_predictive_likelihood(self, y, mu, alpha, beta):
         loc = self.de_whiten_mean(mu)
-        if self.prior_fam == 'Gamma':
-            py_x = tfp.distributions.StudentT(df=2 * alpha, loc=loc, scale=self.de_whiten_stddev(tf.sqrt(beta / alpha)))
-            return tfp.distributions.Independent(py_x, reinterpreted_batch_ndims=1).log_prob(y)
-        elif self.prior_fam == 'LogNormal':
-            return monte_carlo_student_t(loc, self.de_whiten_precision(p_samples)).log_prob(y)
+        py_x = tfp.distributions.StudentT(df=2 * alpha, loc=loc, scale=self.de_whiten_stddev(tf.sqrt(beta / alpha)))
+        return tfp.distributions.Independent(py_x, reinterpreted_batch_ndims=1).log_prob(y)
 
 
-def prior_params(precisions, prior_fam):
-    if prior_fam == 'Gamma':
-        a, _, b_inv = sps.gamma.fit(precisions, floc=0)
-        b = 1 / b_inv
-    else:
-        a, b = np.mean(np.log(precisions)), np.std(np.log(precisions))
-    print(prior_fam, 'Prior:', a, b)
+def prior_params(precisions):
+    a, _, b_inv = sps.gamma.fit(precisions, floc=0)
+    b = 1 / b_inv
+    print('Gamma MLE parameters:', a, b)
     return a, b
 
 
@@ -366,7 +358,7 @@ if __name__ == '__main__':
     ds_train = tf.data.Dataset.from_tensor_slices({'x': x_train, 'y': y_train}).batch(x_train.shape[0])
 
     # compute standard prior according to prior family
-    A, B = prior_params(1 / true_std[(np.min(x_train) <= x_eval) * (x_eval <= np.max(x_train))] ** 2, PRIOR_FAM)
+    A, B = prior_params(1 / true_std[(np.min(x_train) <= x_eval) * (x_eval <= np.max(x_train))] ** 2)
 
     # VAMP prior pseudo-input initializers
     U = np.expand_dims(np.linspace(np.min(x_eval), np.max(x_eval), 20), axis=-1)
@@ -381,13 +373,13 @@ if __name__ == '__main__':
 
     # declare model instance
     mdl = MODEL(d_in=x_train.shape[1],
+                n_hidden=1,
                 d_hidden=D_HIDDEN,
                 f_hidden='elu',
                 d_out=y_train.shape[1],
                 y_mean=0.0,
                 y_var=1.0,
                 prior_type=PRIOR_TYPE,
-                prior_fam=PRIOR_FAM,
                 num_mc_samples=N_MC_SAMPLES,
                 a=A,
                 b=B,
