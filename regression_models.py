@@ -348,7 +348,6 @@ if __name__ == '__main__':
     # set configuration
     D_HIDDEN = 50
     PRIOR_TYPE = args.prior_type
-    PRIOR_FAM = 'Gamma' if 'Gamma' in args.algorithm else 'LogNormal'
     N_MC_SAMPLES = 50
     LEARNING_RATE = 1e-2
     EPOCHS = int(6e3)
