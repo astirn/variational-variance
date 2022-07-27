@@ -86,6 +86,7 @@ def train_and_eval(dataset, algo, prior, epochs, batch_size, x_train, y_train, x
     if 'toy' in dataset:
 
         # hyper-parameters
+        n_hidden = 1
         d_hidden = 50
         f_hidden = 'elu'
         learning_rate = 5e-3
@@ -95,7 +96,7 @@ def train_and_eval(dataset, algo, prior, epochs, batch_size, x_train, y_train, x
         # prior parameters
         k = 20
         u = np.expand_dims(np.linspace(np.min(x_eval), np.max(x_eval), k), axis=-1)
-        a, b = prior_params(kwargs.get('precisions'), prior_fam='Gamma')
+        a, b = prior_params(kwargs.get('precisions'))
 
     # UCI data configuration
     else:
@@ -157,7 +158,7 @@ def train_and_eval(dataset, algo, prior, epochs, batch_size, x_train, y_train, x
     if early_stopping:
         callbacks += [tf.keras.callbacks.EarlyStopping(monitor=model_ll, min_delta=1e-4, patience=50, mode='max',
                                                        restore_best_weights=True)]
-    mdl.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate), loss=[None])
+    mdl.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=learning_rate))
     hist = mdl.fit(ds_train, validation_data=ds_eval, epochs=epochs, verbose=0, callbacks=callbacks)
 
     # test for NaN's
@@ -197,7 +198,7 @@ def run_experiments(algo, dataset, mode='resume', parallel=False, **kwargs):
         base_name = algo
 
     # dataset specific hyper-parameters
-    n_trials = 10 if dataset in {'toy', 'toy-sparse', 'protein', 'year'} else 20
+    n_trials = 5 if (dataset in {'protein', 'year'} or 'toy' in dataset) else 20
     batch_size = 500 if 'toy' in dataset else 256
     if 'toy' in dataset:
         batch_iterations = int(6e3)
@@ -282,7 +283,8 @@ def run_experiments(algo, dataset, mode='resume', parallel=False, **kwargs):
 
             # generate data
             x_train, y_train, x_eval, y_eval, true_std = generate_toy_data(num_samples=batch_size,
-                                                                           sparse=('sparse' in dataset))
+                                                                           sparse=('sparse' in dataset),
+                                                                           homoscedastic=('homoscedastic' in dataset))
 
             # compute true precisions
             kwargs.update({'precisions': 1 / true_std[(np.min(x_train) <= x_eval) * (x_eval <= np.max(x_train))] ** 2})
@@ -369,7 +371,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # check inputs
-    assert args.dataset in {'toy', 'toy-sparse'}.union(set(os.listdir('data')))
+    assert args.dataset in set(os.listdir('data')) or 'toy' in args.dataset
 
     # assemble configuration dictionary
     KWARGS = {}

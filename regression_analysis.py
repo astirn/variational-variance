@@ -14,13 +14,16 @@ from utils_analysis import make_clean_method_names, build_table, champions_club_
 sns.set(color_codes=True)
 
 
-def regression_subplot(method, ll_logger, data_logger, mv_logger, ax, color, sparse):
+def regression_subplot(method, ll_logger, data_logger, mv_logger, ax, color, sparse, homoscedastic):
+    ll_logger = ll_logger.loc[ll_logger.index <= 5]
+    data_logger = data_logger.loc[data_logger.index <= 5]
+    mv_logger = mv_logger.loc[mv_logger.index <= 5]
 
     # get best performance for this dataset/algorithm/prior combination
     if not sparse:
-        i_best = ll_logger[ll_logger.Method == method]['LL'].idxmax()
+        i_best = ll_logger[ll_logger.Method == method]['LL'].astype(float).idxmax()
     else:
-        i_best = ll_logger[ll_logger.Method == method]['Mean RMSL2'].idxmin()
+        i_best = ll_logger[ll_logger.Method == method]['Mean RMSL2'].astype(float).idxmin()
 
     # plot the training data
     data = data_logger[data_logger.Method == method].loc[i_best]
@@ -28,6 +31,9 @@ def regression_subplot(method, ll_logger, data_logger, mv_logger, ax, color, spa
 
     # plot the model's mean and standard deviation
     model = mv_logger[mv_logger.Method == method].loc[i_best]
+    model['x'] = model['x'].astype(float)
+    model['mean(y|x)'] = model['mean(y|x)'].astype(float)
+    model['std(y|x)'] = model['std(y|x)'].astype(float)
     ax.plot(model['x'], model['mean(y|x)'], color=color)
     ax.fill_between(model['x'],
                     model['mean(y|x)'] - 2 * model['std(y|x)'],
@@ -35,7 +41,7 @@ def regression_subplot(method, ll_logger, data_logger, mv_logger, ax, color, spa
                     color=color, alpha=0.25)
 
     # plot the true mean and standard deviation
-    _, _, x_eval, true_mean, true_std = generate_toy_data()
+    _, _, x_eval, true_mean, true_std = generate_toy_data(homoscedastic=homoscedastic)
     ax.plot(x_eval, true_mean, '--k', alpha=0.5)
     ax.plot(x_eval, true_mean + 2 * true_std, ':k', alpha=0.5)
     ax.plot(x_eval, true_mean - 2 * true_std, ':k', alpha=0.5)
@@ -44,7 +50,7 @@ def regression_subplot(method, ll_logger, data_logger, mv_logger, ax, color, spa
     ax.set_title(model['Method'].unique()[0])
 
 
-def toy_regression_plot(ll_logger, data_logger, mv_logger, sparse):
+def toy_regression_plot(ll_logger, data_logger, mv_logger, sparse, homoscedastic):
     # make clean method names for report
     ll_logger = make_clean_method_names(ll_logger)
     data_logger = make_clean_method_names(data_logger)
@@ -86,7 +92,7 @@ def toy_regression_plot(ll_logger, data_logger, mv_logger, sparse):
         method1 = method_order[2 * i]
         if method1 in methods_with_data:
             ax = fig.axes[n_rows * i]
-            regression_subplot(method1, ll_logger, data_logger, mv_logger, ax, colors[0], sparse)
+            regression_subplot(method1, ll_logger, data_logger, mv_logger, ax, colors[0], sparse, homoscedastic)
             ax.set_xlim(x_lim)
             ax.set_ylim([-25, 25])
             ax.set_xlabel('')
@@ -99,7 +105,7 @@ def toy_regression_plot(ll_logger, data_logger, mv_logger, sparse):
         method2 = method_order[2 * i + 1]
         if method2 in methods_with_data:
             ax = fig.axes[n_rows * i + 1]
-            regression_subplot(method2, ll_logger, data_logger, mv_logger, ax, colors[1], sparse)
+            regression_subplot(method2, ll_logger, data_logger, mv_logger, ax, colors[1], sparse, homoscedastic)
             ax.set_xlim(x_lim)
             ax.set_ylim([-25, 25])
             ax.set_xlabel('')
@@ -110,25 +116,29 @@ def toy_regression_plot(ll_logger, data_logger, mv_logger, sparse):
 
         # third row subplots
         ax = fig.axes[n_rows * i + 2]
-        _, _, x_eval, _, true_std = generate_toy_data()
+        _, _, x_eval, _, true_std = generate_toy_data(homoscedastic=homoscedastic)
         ax.plot(x_eval, true_std, 'k', label='truth')
-        if method1 in methods_with_data and method2 in methods_with_data:
-            data = mv_logger[mv_logger.Method == method1]
-            data = data.append(mv_logger[mv_logger.Method == method2])
-            sns.lineplot(x='x', y='std(y|x)', hue='Method', ci='sd', data=data, ax=ax)
-            ax.legend().remove()
-            ax.set_xlim(x_lim)
-            ax.set_ylim([0, 5])
-            if i > 0:
-                ax.set_ylabel('')
-                ax.set_yticklabels([])
+        for j, method in enumerate([method1, method2]):
+            if method in methods_with_data:
+                data = mv_logger[mv_logger.Method == method]
+                mean_of_std = data.groupby(['Algorithm', 'x'])[['std(y|x)']].mean().reset_index()
+                std_of_std = data.groupby(['Algorithm', 'x'])[['std(y|x)']].std().reset_index()
+                ax.plot(mean_of_std['x'], mean_of_std['std(y|x)'], color=colors[j])
+                ax.fill_between(std_of_std['x'],
+                                mean_of_std['std(y|x)'] - 2 * std_of_std['std(y|x)'],
+                                mean_of_std['std(y|x)'] + 2 * std_of_std['std(y|x)'],
+                                color=colors[j], alpha=0.25)
+        ax.legend().remove()
+        ax.set_xlim(x_lim)
+        ax.set_ylim([0, 5])
+        if i > 0:
+            ax.set_ylabel('')
+            ax.set_yticklabels([])
 
     return fig
 
 
-def toy_regression_analysis(sparse):
-    # dataset
-    dataset = 'toy' + ('-sparse' if sparse else '')
+def toy_regression_analysis(dataset):
 
     # get all the pickle files
     data_pickles = set(glob.glob(os.path.join(RESULTS_DIR, '*', dataset, '*_data.pkl')))
@@ -149,7 +159,7 @@ def toy_regression_analysis(sparse):
         mv_logger = mv_logger.append(pd.read_pickle(p))
 
     # generate plot
-    fig = toy_regression_plot(ll_logger, data_logger, mv_logger, sparse)
+    fig = toy_regression_plot(ll_logger, data_logger, mv_logger, 'sparse' in dataset, 'homoscedastic' in dataset)
     fig.savefig(os.path.join('assets', 'fig_' + dataset.replace('-', '_') + '.png'))
     fig.savefig(os.path.join('assets', 'fig_' + dataset.replace('-', '_') + '.pdf'))
 
@@ -256,8 +266,9 @@ if __name__ == '__main__':
         os.mkdir('assets')
 
     # run experiments accordingly
-    if 'toy' in args.experiment:
-        toy_regression_analysis(sparse=('sparse' in args.experiment))
+    if args.experiment == 'toy':
+        for experiment in ['toy', 'toy-homoscedastic', 'toy-sparse', 'toy-homoscedastic-sparse']:
+            toy_regression_analysis(experiment)
     else:
         uci_regression_analysis()
 
