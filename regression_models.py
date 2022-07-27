@@ -272,8 +272,12 @@ class VariationalPrecisionNormalRegression(PredictiveStudent, VariationalVarianc
 
 
 def prior_params(precisions):
-    a, _, b_inv = sps.gamma.fit(precisions, floc=0)
-    b = 1 / b_inv
+    if len(np.unique(precisions)) == 1:
+        a = np.unique(precisions) ** 2 / 1e-3
+        b = np.unique(precisions) / 1e-3
+    else:
+        a, _, b_inv = sps.gamma.fit(precisions, floc=0)
+        b = 1 / b_inv
     print('Gamma MLE parameters:', a, b)
     return a, b
 
@@ -327,17 +331,18 @@ if __name__ == '__main__':
 
     # unit tests for LocationScaleRegression class
     lcr = LocationScaleRegression(y_mean=np.random.normal(0, 1), y_var=np.random.gamma(1, 1))
-    a = tf.random.gamma(shape=[100], alpha=1, beta=1, dtype=tf.float32)
-    b = tf.random.gamma(shape=[100], alpha=1, beta=1, dtype=tf.float32)
-    scale1 = lcr.de_whiten_stddev(tf.sqrt(b / a))
-    scale2 = lcr.de_whiten_precision(a / b) ** -0.5
+    A = tf.random.gamma(shape=[100], alpha=1, beta=1, dtype=tf.float32)
+    B = tf.random.gamma(shape=[100], alpha=1, beta=1, dtype=tf.float32)
+    scale1 = lcr.de_whiten_stddev(tf.sqrt(B / A))
+    scale2 = lcr.de_whiten_precision(A / B) ** -0.5
     assert tf.reduce_max(tf.math.squared_difference(scale1, scale2)) < 1e-10
 
     # script arguments
     parser = argparse.ArgumentParser()
     parser.add_argument('--algorithm', type=str, default='Gamma-Normal', help='algorithm')
+    parser.add_argument('--homoscedastic', action='store_true', default=False, help='homoscedastic toy data option')
     parser.add_argument('--prior_type', default='xVAMP*', type=str, help='prior type')
-    parser.add_argument('--sparse', default=1, type=int, help='sparse toy data option')
+    parser.add_argument('--sparse', action='store_true', default=False, help='sparse toy data option')
     parser.add_argument('--seed', default=1234, type=int, help='prior type')
     args = parser.parse_args()
 
@@ -353,7 +358,8 @@ if __name__ == '__main__':
     EPOCHS = int(6e3)
 
     # load data
-    x_train, y_train, x_eval, true_mean, true_std = generate_toy_data(sparse=bool(args.sparse))
+    x_train, y_train, x_eval, true_mean, true_std = generate_toy_data(sparse=args.sparse,
+                                                                      homoscedastic=args.homoscedastic)
     ds_train = tf.data.Dataset.from_tensor_slices({'x': x_train, 'y': y_train}).batch(x_train.shape[0])
 
     # compute standard prior according to prior family

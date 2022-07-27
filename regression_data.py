@@ -170,12 +170,15 @@ def load_data(data_dir, dir_after_unzip, data_file, parse_args, **kwargs):
         pickle.dump({'data': x, 'target': y}, f)
 
 
-def generate_toy_data(num_samples=500, sparse=False):
+def generate_toy_data(num_samples=500, sparse=False, homoscedastic=False):
     def data_mean(x):
         return x * np.sin(x)
 
     def data_std(x):
-        return np.abs(0.3 * (1 + x))
+        if homoscedastic:
+            return 2.5 * np.ones_like(x)
+        else:
+            return np.abs(0.3 * (1 + x))
 
     # sample training data
     if not sparse:
