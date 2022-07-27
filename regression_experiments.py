@@ -12,7 +12,7 @@ import tensorflow as tf
 
 from regression_data import generate_toy_data
 from callbacks import RegressionCallback
-from regression_models import prior_params, NormalRegression, StudentRegression, VariationalPrecisionNormalRegression
+from regression_models import prior_params, HomoscedasticNormal, NormalRegression, StudentRegression, VariationalPrecisionNormalRegression
 from utils_model import monte_carlo_student_t
 
 # import Detlefsen baseline model
@@ -126,7 +126,9 @@ def train_and_eval(dataset, algo, prior, epochs, batch_size, x_train, y_train, x
     ds_eval = ds_eval.shuffle(10000, reshuffle_each_iteration=True).batch(batch_size)
 
     # pick appropriate model and gradient clip value
-    if algo == 'Normal':
+    if algo == 'HomoscedasticNormal':
+        model = HomoscedasticNormal
+    elif algo == 'Normal':
         model = NormalRegression
     elif algo == 'Student':
         model = StudentRegression
@@ -183,7 +185,7 @@ def train_and_eval(dataset, algo, prior, epochs, batch_size, x_train, y_train, x
 
 
 def run_experiments(algo, dataset, mode='resume', parallel=False, **kwargs):
-    assert algo in {'Detlefsen', 'Detlefsen (fixed)', 'Normal', 'Student', 'Gamma-Normal', 'Gamma-Normal (2x)'}
+    assert algo in {'Detlefsen', 'Detlefsen (fixed)', 'HomoscedasticNormal', 'Normal', 'Student', 'Gamma-Normal', 'Gamma-Normal (2x)'}
     assert not (algo == 'Detlefsen (fixed)' and 'toy' not in dataset)
     assert mode in {'replace', 'resume'}
 

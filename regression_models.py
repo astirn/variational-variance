@@ -58,14 +58,14 @@ class LocationScaleRegression(tf.keras.Model, ABC):
         return tf.norm(y - self.de_whiten_mean(mean), axis=-1) ** 2
 
     def call(self, inputs, **kwargs):
-        self.objective(x=inputs['x'], y=inputs['y'])
+        self.objective(x=inputs['x'], y=inputs['y'], **kwargs)
         return tf.constant(0.0, dtype=tf.float32)
 
 
-class HomoscedasticRegression(LocationScaleRegression, ABC):
+class HomoscedasticNormal(LocationScaleRegression, ABC):
 
     def __init__(self, d_in, n_hidden, d_hidden, f_hidden, d_out, y_mean, y_var, **kwargs):
-        super(HomoscedasticRegression, self).__init__(y_mean, y_var)
+        super(HomoscedasticNormal, self).__init__(y_mean, y_var)
         assert isinstance(d_in, int) and d_in > 0
         assert isinstance(d_hidden, int) and d_hidden > 0
         assert isinstance(d_out, int) and d_out > 0
@@ -83,11 +83,12 @@ class HomoscedasticRegression(LocationScaleRegression, ABC):
         py_x = tfp.distributions.Normal(loc=mean, scale=precision ** -0.5)
         return tfp.distributions.Independent(py_x, reinterpreted_batch_ndims=1).log_prob(y)
 
-    def objective(self, x, y):
+    def objective(self, x, y, **kwargs):
 
         # run parameter networks
         mean = self.mean(x)
-        self.precision.assign(tf.reduce_mean((y - mean) ** 2, axis=0) ** -1)
+        if kwargs['training']:
+            self.precision.assign(tf.reduce_mean((y - mean) ** 2, axis=0) ** -1)
 
         # compute log likelihood on whitened targets
         ll = self.ll(y, mean, self.precision, whiten_targets=True)
@@ -135,7 +136,7 @@ class NormalRegression(LocationScaleRegression, ABC):
             precision = self.de_whiten_precision(precision)
         return tfp.distributions.MultivariateNormalDiag(loc=mean, scale_diag=precision ** -0.5).log_prob(y)
 
-    def objective(self, x, y):
+    def objective(self, x, y, **kwargs):
 
         # run parameter networks
         mean = self.mean(x)
@@ -221,7 +222,7 @@ class StudentRegression(PredictiveStudent, ABC):
         py_x = tfp.distributions.StudentT(df=2 * alpha, loc=loc, scale=scale)
         return tfp.distributions.Independent(py_x, reinterpreted_batch_ndims=1).log_prob(y)
 
-    def objective(self, x, y):
+    def objective(self, x, y, **kwargs):
 
         # run parameter networks
         mu = self.mu(x)
@@ -283,7 +284,7 @@ class VariationalPrecisionNormalRegression(PredictiveStudent, VariationalVarianc
 
         return expected_log_normal(y, mu, expected_precision, expected_log_precision)
 
-    def objective(self, x, y):
+    def objective(self, x, y, **kwargs):
 
         # run parameter networks
         mu = self.mu(x)
@@ -423,7 +424,7 @@ if __name__ == '__main__':
 
     # pick the appropriate model
     if args.algorithm == 'HomoscedasticNormal':
-        MODEL = HomoscedasticRegression
+        MODEL = HomoscedasticNormal
     elif args.algorithm == 'Normal':
         MODEL = NormalRegression
     elif args.algorithm == 'Student':
