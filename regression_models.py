@@ -62,6 +62,59 @@ class LocationScaleRegression(tf.keras.Model, ABC):
         return tf.constant(0.0, dtype=tf.float32)
 
 
+class HomoscedasticRegression(LocationScaleRegression, ABC):
+
+    def __init__(self, d_in, n_hidden, d_hidden, f_hidden, d_out, y_mean, y_var, **kwargs):
+        super(HomoscedasticRegression, self).__init__(y_mean, y_var)
+        assert isinstance(d_in, int) and d_in > 0
+        assert isinstance(d_hidden, int) and d_hidden > 0
+        assert isinstance(d_out, int) and d_out > 0
+
+        # build parameter networks
+        self.mean = neural_network(d_in, n_hidden, d_hidden, f_hidden, d_out, f_out=None, name='mu')
+        self.precision = tf.Variable(initial_value=tf.ones(d_out), trainable=False)
+
+    def ll(self, y, mean, precision, whiten_targets):
+        if whiten_targets:
+            y = self.whiten_targets(y)
+        else:
+            mean = self.de_whiten_mean(mean)
+            precision = self.de_whiten_precision(precision)
+        py_x = tfp.distributions.Normal(loc=mean, scale=precision ** -0.5)
+        return tfp.distributions.Independent(py_x, reinterpreted_batch_ndims=1).log_prob(y)
+
+    def objective(self, x, y):
+
+        # run parameter networks
+        mean = self.mean(x)
+        self.precision.assign(tf.reduce_mean((y - mean) ** 2, axis=0) ** -1)
+
+        # compute log likelihood on whitened targets
+        ll = self.ll(y, mean, self.precision, whiten_targets=True)
+
+        # use negative log likelihood on whitened targets as minimization objective
+        self.add_loss(-tf.reduce_mean(ll))
+
+        # compute de-whitened log likelihood
+        ll_de_whitened = self.ll(y, mean, self.precision, whiten_targets=False)
+
+        # assign model's log likelihood (Bayesian methods will use log posterior predictive likelihood instead)
+        ll_model = ll_de_whitened
+
+        # observation metrics
+        self.add_metric(ll, name='LL', aggregation='mean')
+        self.add_metric(ll_de_whitened, name='LL (de-whitened)', aggregation='mean')
+        self.add_metric(ll_model, name='Model LL', aggregation='mean')
+        self.add_metric(self.squared_errors(mean, y), name='Mean MSE', aggregation='mean')
+
+    def predictive_moments_and_samples(self, x):
+        """Predictive model is the multivariate normal employed during MLE but with rescaled parameters"""
+        n_dist = tfp.distributions.Normal(loc=self.de_whiten_mean(self.mean(x)),
+                                          scale=self.de_whiten_stddev(self.precision ** -0.5))
+        n_dist = tfp.distributions.Independent(n_dist, reinterpreted_batch_ndims=1)
+        return n_dist.mean().numpy(), n_dist.stddev().numpy(), n_dist.sample().numpy()
+
+
 class NormalRegression(LocationScaleRegression, ABC):
 
     def __init__(self, d_in, n_hidden, d_hidden, f_hidden, d_out, y_mean, y_var, **kwargs):
@@ -369,7 +422,9 @@ if __name__ == '__main__':
     U = np.expand_dims(np.linspace(np.min(x_eval), np.max(x_eval), 20), axis=-1)
 
     # pick the appropriate model
-    if args.algorithm == 'Normal':
+    if args.algorithm == 'HomoscedasticNormal':
+        MODEL = HomoscedasticRegression
+    elif args.algorithm == 'Normal':
         MODEL = NormalRegression
     elif args.algorithm == 'Student':
         MODEL = StudentRegression
