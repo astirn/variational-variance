@@ -114,7 +114,7 @@ def generative_tables(results, bold_statistical_ties, stat_test, fn=None):
         table = table.set_index(keys=['Method']).sort_index()
     else:
         table = table.set_index(keys=['Dataset', 'Method']).sort_index()
-    table = table[['ELBO', 'LL', 'Mean RMSE', 'Var Bias', 'Sample RMSE']]
+    table = table[['LL', 'Mean RMSE', 'Var Bias', 'Sample RMSE']]
     return table.to_latex(escape=False)
 
 
